@@ -10,8 +10,8 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.TextView;
-
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AlertDialog;
@@ -35,6 +35,8 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.TimeZone;
 
 import java.util.concurrent.TimeUnit;
@@ -47,6 +49,11 @@ import com.google.android.gms.tasks.OnSuccessListener;
 
 import org.json.JSONObject;
 
+import androidx.appcompat.widget.Toolbar;
+import androidx.appcompat.app.AppCompatActivity;
+import android.os.Bundle;
+import android.widget.Toast;
+
 public class MainActivity extends AppCompatActivity {
 
     private FusedLocationProviderClient fusedLocationProviderClient;
@@ -57,13 +64,20 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_LONGITUDE = "longitude";
 
     private TextView sunriseText;
+    private TextView sunsetText;
+    private TextView kaalValueText, kaalName;
 
     private Location mLocation;
+    private AuspicUtils mAuspicUtils;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+        // Find the Toolbar in the layout
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -71,6 +85,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         sunriseText = (TextView)findViewById(R.id.sunriseTime);
+        sunsetText = (TextView)findViewById(R.id.sunsetTime);
+        kaalName = (TextView)findViewById(R.id.kaal_name);
+        kaalValueText = (TextView)findViewById(R.id.kaal_value);
+
+        mAuspicUtils = new AuspicUtils();
 
         // request permissions
         requestLocationPermission();
@@ -79,7 +98,10 @@ public class MainActivity extends AppCompatActivity {
             requestNotificationPermission();
         }
 
-        // get location if stored
+        initialize();
+    }
+
+    public void initialize(){
         mLocation = getLocationFromPrefs();
 
         if(mLocation.getLatitude() == 0 && mLocation.getLongitude() == 0){
@@ -113,78 +135,97 @@ public class MainActivity extends AppCompatActivity {
                         if (workInfo != null && workInfo.getState().isFinished()) {
                             // Get output data
                             Data outputData = workInfo.getOutputData();
-                            String response = outputData.getString("response");
+                            String sunriseTime = outputData.getString("sunrise");
+                            String sunsetTime = outputData.getString("sunset");
 
                             // Use the response as needed
-                            Log.d(LOG, "Response from Worker: " + response);
-                            setSunriseTime(response);
+                            //Log.d(LOG, "Response from Worker: " + response);
+                            setTexts(sunriseTime, sunsetTime);
                         }
                     }
                 });
 
-        // Set up a periodic work request
-        PeriodicWorkRequest notificationWork = new PeriodicWorkRequest.Builder(NotificationWorker.class, 1, TimeUnit.MINUTES)
-                .build();
-
-        // Enqueue the work request
-        WorkManager.getInstance(this).enqueue(notificationWork);
+//        // Set up a periodic work request
+//        PeriodicWorkRequest notificationWork = new PeriodicWorkRequest.Builder(NotificationWorker.class, 30, TimeUnit.MINUTES)
+//                .build();
+//
+//        // Enqueue the work request
+//        WorkManager.getInstance(this).enqueue(notificationWork);
     }
 
-    private void setSunriseTime(String jsonResponse){
+    public void refreshSunriseTime(View view) {
+        // Handle card click here
+        // toDO REFRESH SUNRISE
+        //Toast.makeText(this, "Card Clicked!", Toast.LENGTH_SHORT).show();
+        initialize();
+    }
+
+    private void setTexts(String sunriseTime, String sunsetTime){
+        sunriseText.setText(sunriseTime);
+        sunsetText.setText(sunsetTime);
+        timeCalculations(sunriseTime);
+    }
+
+
+    private void timeCalculations(String sunriseTime){
         try{
-            JSONObject jsonObject = new JSONObject(jsonResponse);
-            String sunrise = jsonObject.getJSONObject("results").getString("sunrise");
-            String today_date = jsonObject.getJSONObject("results").getString("date");
-            String sunset = jsonObject.getJSONObject("results").getString("sunset");
+            SimpleDateFormat format = new SimpleDateFormat("h:mm:ss a");
+            Date parsedSunriseTime = format.parse(sunriseTime);
+            Calendar sunriseCalender = Calendar.getInstance();
+            sunriseCalender.setTime(parsedSunriseTime);
+            int sHour = sunriseCalender.get(Calendar.HOUR_OF_DAY);
+            int sMinute = sunriseCalender.get(Calendar.MINUTE);
+            Log.d(LOG, "hour; " + sHour);
+            // get today time and date
+            Calendar today = Calendar.getInstance();
+            String dayName = today.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, java.util.Locale.getDefault());
+            Log.d(LOG, dayName);
+            int timePassedSinceSunrise = getMinutesSinceSunrise(sHour,
+                    sMinute, today.get(Calendar.HOUR_OF_DAY), today.get(Calendar.MINUTE));
+            Log.d(LOG, "Time passed: " + timePassedSinceSunrise);
 
-            String utcOffsetString = jsonObject.getJSONObject("results").getString("utc_offset");
-
-            // Create the complete time string with UTC offset
-            String completeTimeString = today_date + " " + sunrise;
-            Log.d(LOG, completeTimeString);
-            // Parse the sunrise time
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss a");
-            sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
-
-            Date sunriseTime = null;
-            try{
-                sunriseTime = sdf.parse(completeTimeString);
-                SimpleDateFormat sdf1 = new SimpleDateFormat("hh:mm:ss");
-
-                // Format the Date
-                String formattedTime = sdf1.format(sunriseTime);
-                // Format the LocalDateTime
-                sunriseText.setText(formattedTime);
-
-                Date date = new Date();
-
-                // Define the SimpleDateFormat
-                SimpleDateFormat current_sdf = new SimpleDateFormat("hh:mm:ss a");
-
-                // Format the current time
-                String currentTime = current_sdf.format(date);
-
-                Calendar calendar = Calendar.getInstance();
-
-                // Define the SimpleDateFormat to get the day name
-                SimpleDateFormat day_sdf = new SimpleDateFormat("EEEE");
-
-                // Format the current date to get the day name
-                String dayName = day_sdf.format(calendar.getTime());
-
-                // Print the name of today's day
-                //_currentTimeText.setText(dayName + " " + currentTime);
-
+            if(timePassedSinceSunrise >= 720){
+                Log.d(LOG, "night time");
+                kaalValueText.setText("Sleeping time");
+                kaalName.setText("");
             }
-            catch (Exception e){
-                Log.d(LOG, "" + e);
+            else if(timePassedSinceSunrise <= 1){
+                Log.d(LOG, "Before sunrise");
+                kaalValueText.setText("Wait for sunrise");
+                kaalName.setText("");
+            }
+            else{
+                AuspicHour aus = mAuspicUtils.getCurrentInterval(dayName, timePassedSinceSunrise);
+                String value = "";
+                switch (aus.value){
+                    case 0:value = "Not good";
+                        break;
+                    case 1:value = "Good";
+                        break;
+                    case 2:value = "Auspicious";
+                        break;
+                    case 3:value = "Most Auspicious";
+                        break;
+                    default: value = "Not Good";
+                        break;
+                }
+
+                kaalValueText.setText(value);
+                kaalName.setText(aus.weight);
             }
         }
         catch (Exception e){
-
+            Log.d(LOG, e.toString());
         }
+    }
 
-
+    public int getMinutesSinceSunrise(int sunriseHour, int sunriseMinute, int currentHour, int currentMinute) {
+        Log.d(LOG, "sunrise: " + sunriseHour);
+        Log.d(LOG, "sunrise: " + sunriseMinute);
+        Log.d(LOG, "" + currentHour);
+        int sunriseInMinutes = sunriseHour * 60 + sunriseMinute;
+        int currentTimeInMinutes = currentHour * 60 + currentMinute;
+        return currentTimeInMinutes - sunriseInMinutes;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)

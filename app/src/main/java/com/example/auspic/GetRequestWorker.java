@@ -15,7 +15,11 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.Dictionary;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.TimeZone;
 
 public class GetRequestWorker extends Worker {
@@ -31,13 +35,33 @@ public class GetRequestWorker extends Worker {
         double latitude = getInputData().getDouble("latitude", 0);
         double longitude = getInputData().getDouble("longitude", 0);
         String jsonResponse = getRequest(latitude,longitude);
+        String sunrise_sunset = parseJson(jsonResponse);
+        String sunriseTime = sunrise_sunset.split("#")[0];
+        String sunsetTime = sunrise_sunset.split("#")[1];
         // Create output data
         Data outputData = new Data.Builder()
+                .putString("sunrise", sunriseTime)
+                .putString("sunset", sunsetTime)
                 .putString("response", jsonResponse)
                 .build();
 
         // Return success with output data
         return Result.success(outputData);
+    }
+
+    private String parseJson(String jsonResponse){
+        try {
+            JSONObject jsonObject = new JSONObject(jsonResponse);
+            String sunrise = jsonObject.getJSONObject("results").getString("sunrise");
+            String today_date = jsonObject.getJSONObject("results").getString("date");
+            String sunset = jsonObject.getJSONObject("results").getString("sunset");
+            return sunrise + "#" + sunset;
+        }
+        catch (Exception e){
+            Log.d(LOG_TAG, e.toString());
+        }
+
+        return "loading...#loading...";
     }
 
     private String getRequest(double latitude, double longitude) {
@@ -64,6 +88,7 @@ public class GetRequestWorker extends Worker {
                 // Here you can parse the response
                 String jsonResponse = response.toString();
                 Log.d(LOG_TAG, jsonResponse);
+
                 return jsonResponse;
             } else {
                 Log.d(LOG_TAG, "Error in get request");

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Auspic</string>
+    <string name="loading">loading...</string>
 </resources>
